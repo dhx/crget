@@ -172,6 +172,8 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 			l = NULL;
 			continue;
 		}
+
+		break;
 	} 
 
 	if(failures >= MAX_FAILED_ATTEMPTS) 
