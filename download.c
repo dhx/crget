@@ -22,8 +22,8 @@
 /* MAX_RECORD_SIZE defines the maximum number of locations we expect in a single
    record.  Be liberal with this number, too many means you might lose a record
    in the event of a sustained system outage, but too few means you may read a
-   corrupted record.  In the future it may be a good idea to autodetect the
-   beginning of valid data in a datalogger when we have no valid signature.
+   corrupted record.  In the future writing an autodetection function for this
+   value might be helpful.
  */
 #define MAX_RECORD_SIZE		100
 
@@ -31,24 +31,6 @@
    read at a time and display.
 */
 #define DOWNLOAD_CHUNK_SIZE	4096
-
-int get_position_signature(logger_t l, uint32_t *signature, int reference_location, int filled_locations)
-{
-	signature[0] = reference_location;
-
-	/* Note the first location index is 1, not 0 */
-	if(logger_read_data(l, (uint8_t *)&signature[1], 1, 2) < 0) 
-		return -1;
-
-	/* XXX This is a bit of a hack, but hopefully this shouldn't happen */
-	if(filled_locations < 2)
-		filled_locations = 2;
-
-	if(logger_read_data(l, (uint8_t *)&signature[2], filled_locations - 2, 2) < 0)
-		return -1;
-
-	return 0;
-}
 
 static logger_t cn_wrapper(fd_t (*connect)(void *cd), void *cd, char *security_code)
 {
@@ -123,71 +105,58 @@ static int download_data(uint8_t **bptr, logger_t l, int start, int end, int fil
 	return 0;
 }
 
-static void download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *security_code, int clockupd, char *signature, int ps)
+static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *security_code, int clockupd, int user_start_location)
 {
 	int start_location, end_location, downloaded_locations = 0;
 	int reference_location, filled_locations;
 	int skew = 0;
-	int f = 0, gl = 0;
-	uint32_t new_signature[3];
+	int failures = 0;
 	uint8_t *buffer = NULL;
 
 	logger_t l = NULL;
 
-	do {
-		if(l != NULL) {
+	while(failures < MAX_FAILED_ATTEMPTS) {
+		if(l != NULL)
 			logger_destroy(l);
-			if(f++ >= MAX_FAILED_ATTEMPTS)
-				fatal("Error: Too many failed attempts to communicate with datalogger... giving up!\n");
-		}
 
 		l = cn_wrapper(connect, cd, security_code);
 
 		if(clockupd) {
 			if(logger_update_clock(l, &skew) < 0) {
-				if(f++ < MAX_FAILED_ATTEMPTS) {
-					logger_destroy(l);
-					l = NULL;
+				failures++;
+				logger_destroy(l);
+				l = NULL;
 
-					continue;
-				}
-
-				fatal("Error: Too many failed attempts to communicate with datalogger... giving up!\n");
+				continue;
 			}
 
 			clockupd = 0;
 		}
 
-		if(!gl) {
-			if(logger_get_position(l, &reference_location, &filled_locations) < 0) {
-				if(f++ < MAX_FAILED_ATTEMPTS) {
-					logger_destroy(l);
-					l = NULL;
-
-					continue;
-				}
-
-				fatal("Error: Too many failed attempts to communicate with datalogger... giving up!\n");
-			}
-
-			gl = 1;
+		if(logger_get_position(l, &reference_location, &filled_locations) < 0) {
+			failures++;
+			logger_destroy(l);
+			l = NULL;
+			continue;
 		}
-	} while(get_position_signature(l, new_signature, reference_location, filled_locations));
+	} 
+
+	if(failures >= MAX_FAILED_ATTEMPTS) 
+		fatal("Error: Too many failed attempts to communicate with datalogger... giving up!\n");
 
 	/* Normal operation */
-	if(signature != NULL && (signature[1] == new_signature[1] || signature[2] == new_signature[2])) {
-		start_location = signature[0];
-		end_location = reference_location;
-	} else {
+	if(user_start_location >= 0) 
+		start_location = user_start_location;
+	else
 		start_location = reference_location + MAX_RECORD_SIZE;
-		end_location = reference_location;
-	}
+	
+	end_location = reference_location;
 
 	if(start_location > filled_locations)
 		start_location = 1;
 
 	while(logger_record_align(l, &start_location)) {
-		if(f++ >= MAX_FAILED_ATTEMPTS)
+		if(failures++ >= MAX_FAILED_ATTEMPTS)
 			fatal("Error: Too many failed attempts to communicate with datalogger... giving up!\n");
 
 		logger_destroy(l);
@@ -197,7 +166,7 @@ static void download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *secur
 	print("Downloading data between locations %d and %d:\n", start_location, end_location);
 
 	while(download_data(&buffer, l, start_location, end_location, filled_locations, &downloaded_locations) < 0) {
-		if(f++ >= MAX_FAILED_ATTEMPTS)
+		if(failures++ >= MAX_FAILED_ATTEMPTS)
 			fatal("Error: Too many failed attempts to communicate with datalogger... giving up!\n");
 
 		logger_destroy(l);
@@ -205,35 +174,35 @@ static void download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *secur
 	}
 
 	process_data(out, buffer, downloaded_locations * 2);
-	if(ps)
-		fprintf(out, "\n!s,%08x%08x%08x\n", new_signature[0], new_signature[1], new_signature[2]);
+
+	return end_location;
 }
 
 
-void download_serial(FILE *out, char *device, char *security_code, int clockupd, char *signature, int ps)
+int download_serial(FILE *out, char *device, char *security_code, int clockupd, int start_location)
 {
 	struct serial_cd scd;
 	scd.device = device;
 
-	download(out, connect_serial, &scd, security_code, clockupd, signature, ps);
+	return download(out, connect_serial, &scd, security_code, clockupd, start_location);
 }
 
-void download_modem(FILE *out, char *number, char *device, char *security_code, int clockupd, char *signature, int ps)
+int download_modem(FILE *out, char *number, char *device, char *security_code, int clockupd, int start_location)
 {
 	struct modem_cd mcd;
 
 	mcd.device = device;
 	mcd.number = number;
 
-	download(out, connect_modem, &mcd, security_code, clockupd, signature, ps);
+	return download(out, connect_modem, &mcd, security_code, clockupd, start_location);
 }
 
-void download_tcpip(FILE *out, char *hostname, int port, char *security_code, int clockupd, char *signature, int ps)
+int download_tcpip(FILE *out, char *hostname, int port, char *security_code, int clockupd, int start_location)
 {
 	struct tcpip_cd tcd;
 
 	tcd.hostname = hostname;
 	tcd.port = port;
 
-	download(out, connect_tcpip, &tcd, security_code, clockupd, signature, ps);
+	return download(out, connect_tcpip, &tcd, security_code, clockupd, start_location);
 }

@@ -8,7 +8,7 @@
 #include "download.h"
 #include "output.h"
 
-#define VERSION	"crget 0.1, a Campbell Datalogger access utility."
+#define VERSION	"crget 0.1b, a Campbell Datalogger access utility."
 #define DEVICE	"/dev/logger"
 #define PORT	2030
 
@@ -39,15 +39,14 @@ void usage()
 	print("Flags:\n");
 	print("  -d <device>\tCommunicate using the given serial device\n");
 	print("  -p <port>\tConnect to datalogger using the given TCP/IP port\n");
-	print("  -s <sig>\tSignature from previous communication\n");
+	print("  -l <location>\tLocation to begin reading from\n");
 	print("  -c <code>\tUse the given security code\n");
 	print("  -o <file>\tOutput to the given file (- for stdout)\n");
 	print("  -C\t\tDon't update datalogger's clock\n");
-	print("  -S\t\tAppend the new signature to the end of the data\n");
 	print("  -i\t\tForce interpretation of datalogger location as Internet address\n");
 	print("  -q\t\tQuiet operation (disables all messages)\n");
 	print("  -h\t\tDisplay this help\n");
-	exit(EXIT_FAILURE);
+	exit(-1);
 }
 
 void usage_full()
@@ -58,16 +57,15 @@ void usage_full()
 
 int main(int argc, char **argv)
 {
-	int r;
+	int r, end_location;
 
 	/* Settings */
 	int mode = -1;	/* 0: Local serial  1: Modem  2: TCP/IP */
 	int clockupd = -1;
 	int port = PORT;
-	int ps = 0;
+	int startloc = -1;
 	char *device = DEVICE;
 	char *security_code = NULL;
-	char *signature = NULL;
 	char *outfile = NULL;
 	char *logger = NULL;
 	time_t c;
@@ -99,13 +97,8 @@ int main(int argc, char **argv)
 				}
 
 				break;
-			case 's':
-				if(strlen(optarg) != 24) {
-					print("Warning: Invalid signature given: %s\n", optarg);
-					break;
-				}
-
-				signature = optarg;
+			case 'l':
+				startloc = atoi(optarg);
 				break;
 			case 'c':
 				if(clockupd != 0)
@@ -118,9 +111,6 @@ int main(int argc, char **argv)
 				break;
 			case 'C':
 				clockupd = 0;
-				break;
-			case 'S':
-				ps = 1;
 				break;
 			case 'i':
 				if(mode != -1 && mode != 2) {
@@ -192,13 +182,13 @@ int main(int argc, char **argv)
 
 	switch(mode) {
 		case 0:
-			download_serial(output_file, device, security_code, clockupd, signature, ps);
+			end_location = download_serial(output_file, device, security_code, clockupd, startloc);
 			break;
 		case 1:
-			download_modem(output_file, logger, device, security_code, clockupd, signature, ps);
+			end_location = download_modem(output_file, logger, device, security_code, clockupd, startloc);
 			break;
 		case 2:
-			download_tcpip(output_file, logger, port, security_code, clockupd, signature, ps);
+			end_location = download_tcpip(output_file, logger, port, security_code, clockupd, startloc);
 			break;
 	}
 
@@ -216,5 +206,5 @@ int main(int argc, char **argv)
 	if(output_file != stdout)
 		fclose(output_file);
 
-	exit(EXIT_SUCCESS);
+	exit(end_location);
 }

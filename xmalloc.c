@@ -3,6 +3,8 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "xmalloc.h"
+
 void *xmalloc(size_t size)
 {
 	void *ret;

@@ -2,6 +2,8 @@
 #include <inttypes.h>
 #include <stdio.h>
 
+#include "format_data.h"
+
 struct hrv {
 	int sign;
 	int mantissa;
