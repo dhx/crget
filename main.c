@@ -106,7 +106,7 @@ int main(int argc, char **argv)
 
 	FILE *output_file;
 
-	while((r = getopt(argc, argv, "d:p:s:c:o:CSiqh")) != -1) {
+	while((r = getopt(argc, argv, "d:p:l:c:o:CSiqh")) != -1) {
 		switch(r) {
 			case 'd':
 				if(mode != -1) {
