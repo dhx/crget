@@ -1,3 +1,36 @@
+/*
+   logger.c - Functions for low-level datalogger protocol
+   Copyright (C)2002-03 Anthony Arcieri
+   All rights reserved.
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions
+   are met:
+
+ * Redistributions of source code must retain the above copyright
+ notice, this list of conditions and the following disclaimer.
+
+ * Redistributions in binary form must reproduce the above copyright
+ notice, this list of conditions and the following disclaimer in the
+ documentation and/or other materials provided with the distribution.
+
+ * The name of Anthony Arcieri may not be used to endorse or promote 
+ products derived from this software without specific prior written 
+ permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT 
+ OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+ SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED 
+ TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -99,7 +132,7 @@ static int logger_get_prompt(logger_t l)
 
 	if(fd_buffer_count(l->p) != 0) 
 		fd_flush(l->p);
-	
+
 	if(fd_write(l->p, "\r\n", 2) < 0) {
 		print("Serial error: Couldn't send to device while getting prompt!\n");
 		return -1;
@@ -131,11 +164,11 @@ static int logger_get_prompt(logger_t l)
 }
 
 /* Send a command to the datalogger 
- 
- XXX This whole function really needs to be rewritten.  One way to start is to
- remove the get prompt function, and have this function get a prompt before
- it returns, then set a value in logger saying the datalogger is ready for the 
- next command. */
+
+   XXX This whole function really needs to be rewritten.  One way to start is to
+   remove the get prompt function, and have this function get a prompt before
+   it returns, then set a value in logger saying the datalogger is ready for the 
+   next command. */
 static ssize_t logger_command(logger_t l, char *instr, char *outstr, int len)
 {
 	int i, c, ec = 0;
@@ -171,7 +204,7 @@ static ssize_t logger_command(logger_t l, char *instr, char *outstr, int len)
 
 		if(strlen(outptr) == 0)
 			continue;
-		
+
 		if(c == len)
 			continue;
 
@@ -187,7 +220,7 @@ static ssize_t logger_command(logger_t l, char *instr, char *outstr, int len)
 		   back to us.  If we get something else in the mean time, 
 		   the bug has been encountered, so we just reinitialize, retry,
 		   and hope for the best.
-		   */
+		 */
 
 		if(!strcmp(instr, outptr)) {
 			ec = 1;
@@ -219,9 +252,9 @@ static ssize_t logger_command(logger_t l, char *instr, char *outstr, int len)
 
    This function also returns the following:
 
--1:    Indicates an error occured (fd error or checksum mismatch)
- 0:    Indicates the security code was accepted and we are at a new level
- 1:    No new security level was returned.  The datalogger may be unlocked.
+   -1:    Indicates an error occured (fd error or checksum mismatch)
+0:    Indicates the security code was accepted and we are at a new level
+1:    No new security level was returned.  The datalogger may be unlocked.
  */
 int logger_set_security_level(logger_t l, char *password)
 {
@@ -309,8 +342,8 @@ int logger_set_security_level(logger_t l, char *password)
 }
 
 /*
-This function sets the datalogger's clock to the current date and calculates
-the timeskew between the datalogger's old clock setting and the real one.
+   This function sets the datalogger's clock to the current date and calculates
+   the timeskew between the datalogger's old clock setting and the real one.
 
 IMPORTANT: Because this uses the system clock, it is **ABSOLUTELY ESSENTIAL**
 that the current system clock have the right time.  This should be 
@@ -429,13 +462,13 @@ int logger_get_position(logger_t l, int *reference_location, int *filled_locatio
 
 	if(filled_locations != NULL)
 		*filled_locations = -1;
-	
+
 	while((p = strsep(&s, " ")) != NULL) {
 		switch(p[0]) {
 			case 'R':
 				if(reference_location == NULL)
 					continue;
-				
+
 				if((t = strchr(p, '+')) == NULL)
 					continue;
 				t++;
@@ -460,7 +493,7 @@ int logger_get_position(logger_t l, int *reference_location, int *filled_locatio
 
 	if(filled_locations != NULL && *filled_locations == -1)
 		return -1;
-	
+
 	return 0;
 }
 
@@ -522,7 +555,7 @@ int logger_record_align(logger_t l, int *location)
 
 	*tp = '\0';
 	*location = atoi(lp);
-	
+
 	return 0;
 }
 

@@ -1,3 +1,36 @@
+/*
+   format_data.c - Code to convert from binary to ASCII data format
+   Copyright (C)2002-03 Anthony Arcieri
+   All rights reserved.
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions
+   are met:
+
+ * Redistributions of source code must retain the above copyright
+ notice, this list of conditions and the following disclaimer.
+
+ * Redistributions in binary form must reproduce the above copyright
+ notice, this list of conditions and the following disclaimer in the
+ documentation and/or other materials provided with the distribution.
+
+ * The name of Anthony Arcieri may not be used to endorse or promote 
+ products derived from this software without specific prior written 
+ permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT 
+ OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+ SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED 
+ TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -19,7 +52,7 @@ static void process_output_array_header(FILE *out, uint8_t *buffer)
 		fputc('\n', out);
 	else
 		t = 1;
-	
+
 	fprintf(out, "%d", ((buffer[0] & 0x3) << 8) | buffer[1]);
 }
 
@@ -29,14 +62,14 @@ static void process_low_res_data(FILE *out, uint8_t *buffer)
 	int mantissa = (buffer[0] & 0x60) >> 5;
 	int base;
 	float value;
-	
+
 	if(buffer[0] & 0x80)
 		sign = -1;
 	else
 		sign = 1;
-			
+
 	base = sign * (((buffer[0] & 0x1f) << 8) | buffer[1]);
-	
+
 	if(mantissa) {
 		switch(mantissa) {
 			case 1:

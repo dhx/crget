@@ -1,3 +1,36 @@
+/*
+   download.c - Code for downloading data from a datalogger
+   Copyright (C)2002-03 Anthony Arcieri
+   All rights reserved.
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions
+   are met:
+
+ * Redistributions of source code must retain the above copyright
+ notice, this list of conditions and the following disclaimer.
+
+ * Redistributions in binary form must reproduce the above copyright
+ notice, this list of conditions and the following disclaimer in the
+ documentation and/or other materials provided with the distribution.
+
+ * The name of Anthony Arcieri may not be used to endorse or promote 
+ products derived from this software without specific prior written 
+ permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT 
+ OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+ SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED 
+ TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -29,7 +62,7 @@
 
 /* DOWNLOAD_CHUNK_SIZE defines how many chunks the internal function calls
    read at a time and display.
-*/
+ */
 #define DOWNLOAD_CHUNK_SIZE	4096
 
 static logger_t cn_wrapper(fd_t (*connect)(void *cd), void *cd, char *security_code)
@@ -75,10 +108,10 @@ static int download_data(uint8_t **bptr, logger_t l, int start, int end, int fil
 
 	while(*downloaded < total) {
 		draw_bar(*downloaded, total);
-		
+
 		if(!wrapped) {
 			loc_to_start = start + *downloaded; 
-		
+
 			if(loc_to_start >= filled) {
 				wrapped = 1;
 				continue;
@@ -89,7 +122,7 @@ static int download_data(uint8_t **bptr, logger_t l, int start, int end, int fil
 			loc_to_start = *downloaded - (filled - start) + 1;
 			loc_to_read = end - loc_to_start;
 		}
-		
+
 		if(loc_to_read > DOWNLOAD_CHUNK_SIZE)
 			loc_to_read = DOWNLOAD_CHUNK_SIZE;
 
@@ -101,7 +134,7 @@ static int download_data(uint8_t **bptr, logger_t l, int start, int end, int fil
 
 	draw_bar(*downloaded, total);
 	print("\n");
-	
+
 	return 0;
 }
 
@@ -149,7 +182,7 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 		start_location = user_start_location;
 	else
 		start_location = reference_location + MAX_RECORD_SIZE;
-	
+
 	end_location = reference_location;
 
 	if(start_location > filled_locations)
