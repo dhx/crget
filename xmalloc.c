@@ -12,7 +12,7 @@ void *xmalloc(size_t size)
 	if((ret = malloc(size)) == NULL) {
 		perror("malloc");
 
-		exit(EXIT_FAILURE);
+		exit(-1);
 	}
 
 	return ret;
@@ -25,7 +25,7 @@ void *xcalloc(size_t count, size_t size)
 	if((ret = calloc(count, size)) == NULL) {
 		perror("calloc");
 
-		exit(EXIT_FAILURE);
+		exit(-1);
 	}
 
 	return ret;
@@ -38,7 +38,7 @@ void *xrealloc(void *ptr, size_t size)
 	if((ret = realloc(ptr, size)) == NULL) {
 		perror("realloc");
 
-		exit(EXIT_FAILURE);
+		exit(-1);
 	}
 
 	return ret;
@@ -51,7 +51,7 @@ char *xstrdup(const char *str)
 	if((ret = strdup(str)) == NULL) {
 		perror("strdup");
 
-		exit(EXIT_FAILURE);
+		exit(-1);
 	}
 
 	return ret;
