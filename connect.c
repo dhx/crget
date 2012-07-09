@@ -67,7 +67,8 @@ fd_t connect_modem(void *cd)
 	if((m = modem_init(mcd->device)) == NULL) { 
 		perror(mcd->device); 
 		fatal("Error #101: Couldn't open modem device\n");
-		exit(EXIT_FAILURE);
+		return NULL;
+		//exit(EXIT_FAILURE);
 	}
 
 	print("port opened.\n");
@@ -77,7 +78,8 @@ fd_t connect_modem(void *cd)
 	while(modem_reset(m) < 0) {
 		if(i++ > MODEM_INIT_ATTEMPTS) {
 			fatal("Error #102: Couldn't reset modem\n");
-			exit(EXIT_FAILURE);
+			return NULL;
+			//exit(EXIT_FAILURE);
 		}
 
 		modem_close(m);
@@ -87,7 +89,8 @@ fd_t connect_modem(void *cd)
 		if((m = modem_init(mcd->device)) == NULL) {
 			perror(mcd->device);
 			fatal("Error #103: Couldn't initialize modem\n");
-			exit(EXIT_FAILURE);
+			return NULL;
+			//exit(EXIT_FAILURE);
 		}
 	}
 
@@ -100,7 +103,8 @@ fd_t connect_modem(void *cd)
 
 		if(i > MODEM_DIAL_ATTEMPTS) {
 			fatal("Error #104: Too many dialing attempts, giving up!\n");
-			exit(EXIT_FAILURE);
+			return NULL;
+			//exit(EXIT_FAILURE);
 		}
 
 		print("Dialing %s... ", mcd->number);

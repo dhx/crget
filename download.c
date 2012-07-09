@@ -80,14 +80,16 @@ static logger_t cn_wrapper(fd_t (*connect)(void *cd), void *cd, char *security_c
 	while((fd = connect(cd)) == NULL) {
 		if(i++ > MAX_CONNECT_ATTEMPTS) {
 			fatal("Error #201: Too many failed attempts to connect to datalogger... giving up!\n");
-			exit(EXIT_FAILURE);
+			return NULL;
+			//exit(EXIT_FAILURE);
 		}
 	}
 
 	while((l = logger_create(fd)) == NULL) {
 		if(i++ > MAX_CONNECT_ATTEMPTS) {
 			fatal("Error #202: Too many failed attempts to communicate with datalogger... giving up!\n");
-			exit(EXIT_FAILURE);
+			return NULL;
+			//exit(EXIT_FAILURE);
 		}
 	}
 
@@ -177,12 +179,15 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 
 		l = cn_wrapper(connect, cd, security_code);
 
+		if(l == NULL) {
+			failures++;
+			continue;
+		}
+
 		if(clockupd) {
 			if(logger_update_clock(l, &skew) < 0) {
 				failures++;
 				logger_destroy(l);
-				l = NULL;
-
 				continue;
 			}
 
@@ -192,7 +197,6 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 		if(logger_get_position(l, &reference_location, &filled_locations, &memory_pointer, &locations_per_array) < 0) {
 			failures++;
 			logger_destroy(l);
-			l = NULL;
 			continue;
 		}
 
@@ -215,7 +219,7 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 	if(start_location > filled_locations)
 		start_location = 1;
 
-	while(logger_record_align(l, &start_location)) {
+	while(l == NULL || logger_record_align(l, &start_location)) {
 		if(failures++ >= MAX_FAILED_ATTEMPTS) {
 			logger_destroy(l);
 			fatal("Error #204: Too many failed attempts to communicate with datalogger... giving up!\n");
@@ -228,7 +232,7 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 
 	print("Downloading data between locations %d and %d:\n", start_location, end_location);
 
-	while(download_data(&buffer, l, start_location, end_location, filled_locations, &downloaded_locations) < 0) {
+	while(l == NULL || download_data(&buffer, l, start_location, end_location, filled_locations, &downloaded_locations) < 0) {
 
 
 		if(failures++ >= MAX_FAILED_ATTEMPTS) {

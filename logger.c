@@ -120,8 +120,11 @@ logger_t logger_create(fd_t s)
 
 void logger_destroy(logger_t l)
 {
-	fd_destroy(l->p);
-	xfree(l);
+	if(l != NULL) {
+		fd_destroy(l->p);
+		xfree(l);
+		l = NULL;
+	}
 }
 
 /* Get an asterisk prompt from the datalogger */
