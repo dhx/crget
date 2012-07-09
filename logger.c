@@ -48,7 +48,7 @@
 /* RESPONSE_TIMEOUT specifies (in seconds) how long to wait for a response
  * from the datalogger for any given command.  If it doesn't respond in
  * the specified number of seconds, it is considered a fatal error. */
-#define RESPONSE_TIMEOUT        10      
+#define RESPONSE_TIMEOUT        40
 
 /* INIT_RETRIES specifies the number of times to send CRLF to the datalogger
  * to get the initial prompt.  After we have the initial prompt all operations
@@ -69,7 +69,7 @@
 
 /* RESPONSE_LINES specifies the number of lines in which we expect to receive a 
  * response to an issued command. */
-#define RESPONSE_LINES          6
+#define RESPONSE_LINES          14
 
 /* CLOCK_THRESHOLD defines how many seconds the clock may be off without 
  * updating it. */
@@ -108,7 +108,7 @@ logger_t logger_create(fd_t s)
 		}
 
 		usleep(125000L);
-	} while(fd_buffer_count(l->p) == 0 && r < INIT_RETRIES);
+	} while(fd_buffer_count(l->p) == 0 && r++ < INIT_RETRIES);
 
 	if(r == INIT_RETRIES) {
 		print("Datalogger error: No response from datalogger!\n");
@@ -153,7 +153,9 @@ static int logger_get_prompt(logger_t l)
 
 			a++;
 		}
-
+		// DHX - I have an error here because we try to get the prompt multiple times and we get it multiple times
+		// back while we only wait for the first response. This produces an error later on in the logger_command function
+		// when we expect to get back from the logger the same command we have sent - instead getting the prompt.
 		if(c == '*') 
 			return 0;
 	}
@@ -171,7 +173,7 @@ static int logger_get_prompt(logger_t l)
    next command. */
 static ssize_t logger_command(logger_t l, char *instr, char *outstr, int len)
 {
-	int i, c, ec = 0;
+	int i, ec = 0;
 	char *outptr;
 
 	memset(outstr, '\0', len);
@@ -197,16 +199,26 @@ static ssize_t logger_command(logger_t l, char *instr, char *outstr, int len)
 			return -1;
 		}
 
-		if((outptr = strrchr(outstr, '*')) == NULL)
+		// DHX what do we do here.... we have received something from the logger and now
+		// have a look at it.... for debugging we output what we get here
+		//
+		//	printf("REC: %s \n",outstr);
+
+		if((outptr = strrchr(outstr, '*')) == NULL) {
 			outptr = outstr;
-		else
+			//print("--**--\n");
+		} else {
 			outptr++;
+			//printf("TR: %s \n",outptr);
+		}
+
 
 		if(strlen(outptr) == 0)
 			continue;
 
-		if(c == len)
-			continue;
+		//DHX i've commented this out as it does not make sense.
+		//if(c == len)
+		//	continue;
 
 		if(strlen(outptr) == 0)
 			continue;
@@ -342,6 +354,38 @@ int logger_set_security_level(logger_t l, char *password)
 }
 
 /*
+ *  This function calculates real_day, real_hour, real_minute and real_second
+ *  out of a timestamp time_t
+ */
+void logger_calculate_real_time(time_t t, int* real_day, int* real_hour, int* real_minute, int* real_second, int* real_ysec)
+{
+	struct tm *tm;
+
+	tm = localtime(&t);
+
+	if(tm->tm_isdst) {
+		*real_hour = tm->tm_hour - 1;
+		if(*real_hour < 0) {
+			*real_hour = 23;
+			*real_day = tm->tm_yday - 1;
+		} else
+			*real_day = tm->tm_yday;
+
+		*real_minute = tm->tm_min;
+		*real_second = tm->tm_sec;
+	} else {
+		*real_day = tm->tm_yday;
+		*real_hour = tm->tm_hour;
+		*real_minute = tm->tm_min;
+		*real_second = tm->tm_sec;
+	}
+
+	*real_ysec = *real_day * 86400 + *real_hour * 3600 + *real_minute * 60 + *real_second;
+
+}
+
+
+/*
    This function sets the datalogger's clock to the current date and calculates
    the timeskew between the datalogger's old clock setting and the real one.
 
@@ -358,21 +402,27 @@ they are counted from one.
  */
 int logger_update_clock(logger_t l, int *skew)
 {
-	time_t t;
-	struct tm *tm;
+	time_t t, tb, ta, tl;
 	int i = 0;
 	int logger_day = 0, logger_hour = 0, logger_minute = 0, logger_second = 0;
 	int real_day, real_hour, real_minute, real_second;
 	int real_ysec, logger_ysec;
 	int real_skew;
+	int lag = 0;
 
 	char outbuf[128], inbuf[128], *bptr, *dptr, *tptr = NULL;
 
 	if(logger_get_prompt(l) < 0)
 		return -1;
 
+	tb = time(NULL);
 	if(logger_command(l, "C", inbuf, 128) < 0)
 		return -1;
+	ta = time(NULL);
+    // calculate the lag the command did take to execute to
+	// approximate the time to come close to the real logger time
+	lag = (int)(((double)(ta-tb))/2);
+	t = ta + lag;
 
 	bptr = inbuf;
 	while((dptr = strsep(&bptr, " ")) != NULL) {
@@ -406,38 +456,41 @@ int logger_update_clock(logger_t l, int *skew)
 
 	logger_ysec = (logger_day - 1) * 86400 + logger_hour * 3600 + logger_minute * 60 + logger_second;
 
-	t = time(NULL);
-	tm = localtime(&t);
-
-	if(tm->tm_isdst) {
-		real_hour = tm->tm_hour - 1;
-		if(real_hour < 0) {
-			real_hour = 23;
-			real_day = tm->tm_yday - 1;
-		} else
-			real_day = tm->tm_yday;
-
-		real_minute = tm->tm_min;
-		real_second = tm->tm_sec;
-	} else {
-		real_day = tm->tm_yday;
-		real_hour = tm->tm_hour;
-		real_minute = tm->tm_min;
-		real_second = tm->tm_sec;
-	}
-
-	real_ysec = real_day * 86400 + real_hour * 3600 + real_minute * 60 + real_second;
+	logger_calculate_real_time(t,&real_day,&real_hour,&real_minute,&real_second,&real_ysec);
 
 	real_skew = real_ysec - logger_ysec;
 
-	if(abs(real_skew) > CLOCK_THRESHOLD) {
-		print("Updating clock: Skew of %d seconds is greater than %d second threshold.\n", abs(real_skew), CLOCK_THRESHOLD);
+	tl = t - real_skew * 60;
+
+	print("local: %02d:%02d:%02d logger: %02d:%02d:%02d (corrected by lag: %d sec.)\n",real_hour,real_minute,real_second,logger_hour,logger_minute,logger_second,lag);
+
+	char *env_clock = NULL;
+	env_clock = getenv ("CLOCK_THRESHOLD");
+
+	int clock_threshold = CLOCK_THRESHOLD;
+
+	if(env_clock != NULL) {
+		clock_threshold = atoi(env_clock);
+	}
+
+	if(abs(real_skew) > clock_threshold) {
+		if (lag < 2) { // check if the lag is reasonable - smaller than 2 sec.
+			print("Updating clock: Skew of %d seconds is greater than %d second threshold.\n", abs(real_skew), clock_threshold);
+
+			t = time(NULL) + lag;
+
+			logger_calculate_real_time(t,&real_day,&real_hour,&real_minute,&real_second,&real_ysec);
+
 		snprintf(outbuf, 128, "%03d:%02d:%02d:%02dC", real_day + 1, real_hour, real_minute, real_second);
 
 		if(logger_command(l, outbuf, inbuf, 128) < 0)
 			return 1;
-	} else 
-		print("Not updating clock: Skew of %d seconds is within %d second threshold.\n", abs(real_skew), CLOCK_THRESHOLD);
+		} else {
+			print("Not updating clock: The lag of the connection is too high (%d > 1 sec).\n", lag);
+		}
+	} else {
+		print("Not updating clock: Skew of %d seconds is within %d second threshold.\n", abs(real_skew), clock_threshold);
+	}
 
 	if(skew != NULL)
 		*skew = real_skew;
@@ -446,10 +499,10 @@ int logger_update_clock(logger_t l, int *skew)
 }
 
 /* Returns the current location along with how many records have been filled */
-int logger_get_position(logger_t l, int *reference_location, int *filled_locations)
+int logger_get_position(logger_t l, int *reference_location, int *filled_locations, int *memory_pointer, int *locations_per_array)
 {
-	char status_line[128];
-	char *s = status_line, *p, *t;
+	char status_line[128], loc_status_line[128];
+	char *s = status_line, *ls = loc_status_line, *p, *t;
 
 	if(logger_get_prompt(l) < 0)
 		return -1;
@@ -462,6 +515,9 @@ int logger_get_position(logger_t l, int *reference_location, int *filled_locatio
 
 	if(filled_locations != NULL)
 		*filled_locations = -1;
+
+	if(memory_pointer != NULL)
+		*memory_pointer = -1;
 
 	while((p = strsep(&s, " ")) != NULL) {
 		switch(p[0]) {
@@ -485,6 +541,16 @@ int logger_get_position(logger_t l, int *reference_location, int *filled_locatio
 
 				*filled_locations = atoi(t);
 				break;
+			case 'L':
+				if(memory_pointer == NULL)
+					continue;
+
+				if((t = strchr(p, '+')) == NULL)
+					continue;
+				t++;
+
+				*memory_pointer = atoi(t);
+				break;
 		}
 	}
 
@@ -494,10 +560,39 @@ int logger_get_position(logger_t l, int *reference_location, int *filled_locatio
 	if(filled_locations != NULL && *filled_locations == -1)
 		return -1;
 
+	if(memory_pointer != NULL && *memory_pointer == -1)
+		return -1;
+
+	// We go back one output array to determine the number of Final Storage Locations in one array
+
+	if(logger_command(l, "B", ls, 128) < 0)
+		return -1;
+
+	while((p = strsep(&ls, " ")) != NULL) {
+		switch(p[0]) {
+			case 'L':
+				if(locations_per_array == NULL)
+					continue;
+
+				if((t = strchr(p, '+')) == NULL)
+					continue;
+				t++;
+
+				*locations_per_array = atoi(t);
+				*locations_per_array = *memory_pointer - *locations_per_array;
+
+				if(*locations_per_array < 0) {
+					*locations_per_array += *filled_locations;
+				}
+
+				break;
+		}
+	}
+
 	return 0;
 }
 
-/* Sets the reference location to the given position */
+/* Sets the MPTR location to the given position */
 int logger_set_position(logger_t l, int position)
 {
 	char cmdbuf[16], buf[128], *p, *bptr;
@@ -572,7 +667,7 @@ static void logger_checksum_add_byte(uint8_t s[2], uint8_t byte)
 
 /*
    This function reads the given number of locations from the current 
-   reference location.  It returns the following:
+   MPTR location.  It returns the following:
 
 0: success
 -1: read error/response error

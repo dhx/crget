@@ -38,6 +38,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
 
@@ -46,8 +47,8 @@
 #include "modem.h"
 #include "output.h"
 
-#define MODEM_INIT_ATTEMPTS	5
-#define MODEM_DIAL_ATTEMPTS	5
+#define MODEM_INIT_ATTEMPTS	3
+#define MODEM_DIAL_ATTEMPTS	1
 
 fd_t connect_serial(void *cd)
 {
@@ -65,7 +66,8 @@ fd_t connect_modem(void *cd)
 	print("Opening port %s... ", mcd->device);
 	if((m = modem_init(mcd->device)) == NULL) { 
 		perror(mcd->device); 
-		fatal("Couldn't open modem device\n");
+		fatal("Error #101: Couldn't open modem device\n");
+		exit(EXIT_FAILURE);
 	}
 
 	print("port opened.\n");
@@ -73,8 +75,10 @@ fd_t connect_modem(void *cd)
 	print("Initializing modem... ");
 	fflush(stdout);
 	while(modem_reset(m) < 0) {
-		if(i++ > MODEM_INIT_ATTEMPTS) 
-			fatal("Couldn't reset modem\n");
+		if(i++ > MODEM_INIT_ATTEMPTS) {
+			fatal("Error #102: Couldn't reset modem\n");
+			exit(EXIT_FAILURE);
+		}
 
 		modem_close(m);
 		modem_destroy(m);
@@ -82,7 +86,8 @@ fd_t connect_modem(void *cd)
 
 		if((m = modem_init(mcd->device)) == NULL) {
 			perror(mcd->device);
-			fatal("Couldn't initialize modem\n");
+			fatal("Error #103: Couldn't initialize modem\n");
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -93,8 +98,10 @@ fd_t connect_modem(void *cd)
 		if(i++ != 0 && i <= MODEM_DIAL_ATTEMPTS)
 			sleep(5);
 
-		if(i > MODEM_DIAL_ATTEMPTS) 
-			fatal("Too many dialing attempts, giving up!\n");
+		if(i > MODEM_DIAL_ATTEMPTS) {
+			fatal("Error #104: Too many dialing attempts, giving up!\n");
+			exit(EXIT_FAILURE);
+		}
 
 		print("Dialing %s... ", mcd->number);
 		fflush(stdout);
@@ -102,8 +109,9 @@ fd_t connect_modem(void *cd)
 
 	print("connected.\n");
 
-	if((fd = fd_init_modem(m)) == NULL)
+	if((fd = fd_init_modem(m)) == NULL) {
 		return NULL;
+	}
 
 	modem_destroy(m);
 
@@ -123,8 +131,10 @@ fd_t connect_tcpip(void *cd)
 	sin.sin_port = htons(tcd->port);
 
 	if((sin.sin_addr.s_addr = inet_addr(tcd->hostname)) == INADDR_NONE) {
-		if((host = gethostbyname(tcd->hostname)) == NULL) 
-			fatal("Error: Couldn't resolve address %s\n", tcd->hostname);
+		if((host = gethostbyname(tcd->hostname)) == NULL) {
+			fatal("Error #105: Couldn't resolve address %s\n", tcd->hostname);
+			exit(EXIT_FAILURE);
+		}
 
 		memcpy(&sin.sin_addr, host->h_addr, host->h_length);
 	}

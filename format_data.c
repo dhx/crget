@@ -34,6 +34,7 @@
 #include <sys/types.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "format_data.h"
 
@@ -150,6 +151,19 @@ void process_data(FILE *out, uint8_t *buffer, size_t len)
 	int i, l;
 	uint8_t b;
 	static struct hrv v;
+	/*
+	char *rawfile = NULL;
+	FILE *rfile = NULL;
+
+	rawfile = getenv ("RAW_OUTPUTFILE");
+
+	if(rawfile!=NULL) {
+		rfile = fopen(rawfile,"w");
+		if(rfile!=NULL) {
+			fwrite(buffer,sizeof(uint8_t),len,rfile);
+			fclose(rfile);
+		}
+	}*/
 
 	for(i = 0, l = len / 2; i < l; i++) {
 		b = buffer[i * 2];
@@ -164,4 +178,8 @@ void process_data(FILE *out, uint8_t *buffer, size_t len)
 		} else
 			process_low_res_data(out, buffer + i * 2);
 	}
+
+	// DHX Append a trailing newline at the EOF
+	fputc('\n', out);
+
 }

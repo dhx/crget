@@ -52,5 +52,7 @@ int modem_reset(modem_t m);
 ssize_t modem_command(modem_t m, char *instr, char *outstr, int len, int timeout);
 ssize_t modem_command(modem_t m, char *instr, char *outstr, int len, int timeout);
 int modem_dial(modem_t m, char *number);
+int modem_hangup(modem_t m);
+
 
 #endif

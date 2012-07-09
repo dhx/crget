@@ -59,8 +59,9 @@ logger_t logger_create(fd_t s);
 void logger_destroy(logger_t l);
 
 int logger_set_security_level(logger_t l, char *password);
+void logger_calculate_real_time(time_t t, int* real_day, int* real_hour, int* real_minute, int* real_second, int* real_ysec);
 int logger_update_clock(logger_t l, int *skew);
-int logger_get_position(logger_t l, int *reference_location, int *filled_locations);
+int logger_get_position(logger_t l, int *reference_location, int *filled_locations, int *memory_pointer, int *locations_per_array);
 int logger_set_position(logger_t l, int position);
 int logger_record_align(logger_t l, int *location);
 ssize_t logger_read_data(logger_t l, uint8_t *buffer, unsigned int start_location, unsigned int locations_to_read);

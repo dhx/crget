@@ -60,7 +60,7 @@ void fatal(const char *format, ...)
 	vfprintf(stderr, format, ap);
 	va_end(ap);
 
-	exit(EXIT_FAILURE);
+	//exit(EXIT_FAILURE);
 }
 
 void draw_bar(int cur, int max)

@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-g -Wall
+CFLAGS=-Wall
 OBJS=buffer.o connect.o download.o fd.o format_data.o logger.o main.o modem.o output.o xmalloc.o
 
 .c.o:

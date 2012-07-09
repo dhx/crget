@@ -36,6 +36,7 @@
 #include <sys/ioctl.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -58,8 +59,10 @@ fd_t fd_init_serial(char *device)
 	if((f->fd = open(device, O_RDWR | O_NOCTTY)) < 0) {
 		perror(device);
 
-		if(errno == ENOENT)
-			fatal("Error: Datalogger device does not exist\n");
+		if(errno == ENOENT) {
+			fatal("Error #301: Datalogger device does not exist\n");
+			exit(EXIT_FAILURE);
+		}
 
 		xfree(f);
 		return NULL;
@@ -154,6 +157,8 @@ void fd_destroy(fd_t f)
 	if(f->type) 
 		tcsetattr(f->fd, TCSANOW, &f->tio);
 	close(f->fd);
+	// DHX valgrind says that the f is never freed... so we free it here
+	xfree(f);
 }
 
 ssize_t fd_read_raw(fd_t f, void *buffer, size_t nbytes, unsigned int seconds)
@@ -204,7 +209,7 @@ int fd_read(fd_t f, void *buffer, size_t nbytes, unsigned int seconds)
 		if((c = fd_read_raw(f, buffer, nbytes, seconds)) < 0)
 			return -1;
 
-		(char *)buffer += c;
+		buffer += c;
 		nbytes -= c;
 	}
 

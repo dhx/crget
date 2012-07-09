@@ -46,13 +46,17 @@
 #include "xmalloc.h"
 
 /* Baud rate to use (datalogger supports max of 9600) */
-#define BAUDRATE B19200
+#define BAUDRATE B9600
 
 /* Number of times to send ATZ to modem before giving up */
 #define INIT_RETRIES    10
 
 /* Number of seconds to wait after dialing */
 #define DIAL_TIMEOUT    120
+
+/* Number of times to send ATH to modem before giving up */
+#define HANGUP_RETRIES  20
+
 
 /* This initializes the modem and returns a handle to the structure */
 modem_t modem_init(char *device)
@@ -164,8 +168,8 @@ ssize_t modem_read(modem_t m, void *buf, size_t nbytes, int timeout)
 	fd_set f;
 	struct timeval tv;
 
-	tv.tv_sec = timeout;
-	tv.tv_usec = 0;
+	tv.tv_sec = timeout/1000;
+	tv.tv_usec = timeout%1000;
 
 	FD_ZERO(&f);
 	FD_SET(m->fd, &f);
@@ -190,7 +194,7 @@ int modem_reset(modem_t m)
 
 	do {
 		write(m->fd, "+++", 3);
-		usleep(500000L);
+		usleep(2000000L);
 
 		if(write(m->fd, "ATZ\r\n", 5) < 0) {
 			perror("write");
@@ -200,7 +204,7 @@ int modem_reset(modem_t m)
 		memset(buf, '\0', 16);
 
 		while(x < 15) {
-			if(modem_read(m, &c, 1, 5) < 0) 
+			if(modem_read(m, &c, 1, 5000) < 0)
 				break;
 
 			if(c == '\r')
@@ -233,11 +237,21 @@ int modem_reset(modem_t m)
 
 	modem_flush(m);
 
-	if(modem_command(m, "ATL0", buf, 16, 10) < 0)
+
+	char *initstring = getenv("MODEM_INITSTRING");
+
+	// Default value when the environment variable is not set
+	if(initstring == NULL) {
+		initstring = "ATM1L0";
+	}
+
+	if (getenv("VERBOSE_OUTPUT")!=NULL) print("\nUsing the initstring %s.\n",initstring);
+
+	if(modem_command(m, initstring, buf, 16, 10) < 0)
 		return -1;
 
 	if(strcmp(buf, "OK")) { 
-		print("Unexpected response setting modem volume: %s\n", buf);
+		print("Unexpected response initializing the modem: %s\n", buf);
 		return -1;
 	}
 
@@ -260,7 +274,7 @@ ssize_t modem_command(modem_t m, char *instr, char *outstr, int len, int timeout
 	}
 
 	while(x < len) {
-		if(modem_read(m, &c, 1, timeout) < 0) {
+		if(modem_read(m, &c, 1, timeout * 1000) < 0) {
 			perror("read");
 			return -1;
 		}
@@ -326,6 +340,149 @@ int modem_dial(modem_t m, char *number)
 		print("Error while dialing %s: %s\n", number, ret);
 		return -1;
 	}
+
+	return 0;
+}
+
+int modem_hangup(modem_t m)
+{
+	int i = 0, n = 0, x = 0, debug_hangup=0;
+	char buf[210], c;
+
+
+	if(getenv("DEBUG_HANGUP")!=NULL) {
+		debug_hangup = 1;
+	}
+
+	modem_flush(m);
+
+	if(write(m->fd, "\r\n", 2) < 0) {
+		perror("write");
+		return -1;
+	}
+
+	// End the call for the datalogger -- should go into the logger.c
+	if(write(m->fd, "E\r\n", 3) < 0) {
+		perror("write");
+		return -1;
+	}
+
+	do {
+		// second safety counter for the retries.
+		if(n++ == HANGUP_RETRIES) {
+			print("hangup error sending +++, giving up... \n");
+			return -1;
+		}
+
+		usleep(1000000L);
+
+		if(n>HANGUP_RETRIES-5 && n%2) {
+			if(write(m->fd, "\r\nATH\r\n", 5) < 0) {
+				perror("write");
+				return -1;
+			}
+			if(debug_hangup) print("\nSending: ATH\n");
+		} else {
+			if(write(m->fd, "+++", 3) < 0) {
+				perror("write");
+				return -1;
+			}
+			if(debug_hangup) print("\nSending: +++\n");
+		}
+
+		// wait for 2 seconds until the modem catches up
+		usleep(2000000L);
+
+		// clear the receive buffer
+		memset(buf, '\0', 210);
+
+		// reset the safety counter
+		i = 0;
+
+		do {
+
+			// try to read from the modem
+			if(modem_read(m, &c, 1, 1) >= 0) {
+
+				if(c != '\r' && c != '\n') {
+
+					// we are only interested in the last two chars.
+					if(x>1) {
+						buf[0] = buf[1];
+						x=1;
+					}
+
+					buf[x] = c;
+
+					x++;
+
+					buf[x] = '\0';
+
+				}
+
+			}
+			// safety counter, so we do not wait forever
+			i++;
+
+			if(debug_hangup) print("%c",c);
+		} while ((strcmp(buf, "OK")!=0) && (i < 2000));
+
+
+	} while ( i >= 2000 ); // loop until the escape into the modem command line was a success.
+
+	// reset the safety counter for the next loop
+	i = 0;
+	x = 0;
+
+	do {
+
+		if(i++ >= HANGUP_RETRIES) {
+			print("hangup error sending ATH, giving up... \n");
+			return -1;
+		}
+
+		if(write(m->fd, "ATH\r\n", 5) < 0) {
+			perror("write");
+			return -1;
+		}
+		if(debug_hangup) print("\nSending: ATH (i: %d/%d)\n",i,HANGUP_RETRIES);
+
+		// wait a seconds until the modem reacts
+		usleep(1000000L);
+
+		memset(buf, '\0', 210);
+
+		while(x < 200) {
+			if(modem_read(m, &c, 1, 10) < 0)
+				break;
+
+			if(c == '\r')
+				continue;
+
+			if(c != '\n') {
+				buf[x++] = c;
+				continue;
+			}
+
+			if(x == 0)
+				continue;
+
+			buf[x] = '\0';
+
+			if(debug_hangup) print("Getting: %s\n",buf);
+
+			if(!strcmp("ATH", buf)) {
+				x = 0;
+				memset(buf, '\0', 210);
+				continue;
+			}
+
+			break;
+		}
+
+	} while((strcmp(buf, "OK")!=0));
+
+	modem_flush(m);
 
 	return 0;
 }

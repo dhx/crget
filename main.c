@@ -31,12 +31,16 @@
  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
 #include <time.h>
 #include <string.h>
+#include <errno.h>
+#include <limits.h>
+
 
 #include "download.h"
 #include "output.h"
@@ -72,13 +76,17 @@ void usage()
 	print("Flags:\n");
 	print("  -d <device>\tCommunicate using the given serial device\n");
 	print("  -p <port>\tConnect to datalogger using the given TCP/IP port\n");
-	print("  -l <location>\tLocation to begin reading from\n");
+	print("  -l <location>\tLocation to begin reading from. Can also be a filename.\n");
 	print("  -c <code>\tUse the given security code\n");
 	print("  -o <file>\tOutput to the given file (- for stdout)\n");
 	print("  -C\t\tDon't update datalogger's clock\n");
 	print("  -i\t\tForce interpretation of datalogger location as Internet address\n");
 	print("  -q\t\tQuiet operation (disables all messages)\n");
 	print("  -h\t\tDisplay this help\n");
+	print("\n");
+	print("Environment Variables:\n");
+	print("   MODEM_INITSTRING :\tWhen defined this string will be used to initialize\n");
+	print("                     \tthe modem.\n");
 	exit(-1);
 }
 
@@ -97,16 +105,20 @@ int main(int argc, char **argv)
 	int clockupd = -1;
 	int port = PORT;
 	int startloc = -1;
+	long lval = -1;
 	char *device = DEVICE;
 	char *security_code = NULL;
 	char *outfile = NULL;
+	char *locfile = NULL;
+	char *endptr = NULL;
 	char *logger = NULL;
 	time_t c;
 	struct tm *tm;
 
 	FILE *output_file;
+	FILE *location_file;
 
-	while((r = getopt(argc, argv, "d:p:l:c:o:Ciqh")) != -1) {
+	while((r = getopt(argc, argv, "d:p:l:c:o:s:Ciqh")) != -1) {
 		switch(r) {
 			case 'd':
 				if(mode != -1) {
@@ -131,7 +143,48 @@ int main(int argc, char **argv)
 
 				break;
 			case 'l':
-				startloc = atoi(optarg);
+
+				locfile = strdup(optarg);
+				location_file = fopen(locfile, "r");
+				if(location_file != NULL) {
+					fscanf(location_file,"%d",&startloc);
+
+					if (getenv("VERBOSE_OUTPUT")!=NULL)
+						print("Reading position out of '%s': %d\n",locfile,startloc);
+
+					fclose(location_file);
+				} else {
+
+					free(locfile);
+					locfile = NULL;
+
+					errno = 0;    /* To distinguish success/failure after call */
+					lval = strtol(optarg, &endptr, 0);
+
+					if ((errno == ERANGE && (lval == LONG_MAX || lval == LONG_MIN)) || (errno != 0 && lval == 0)) {
+			               perror("No valid position entered");
+			               exit(EXIT_FAILURE);
+					}
+
+					if (endptr == optarg) {
+					   fprintf(stderr, "No position entered (-l).\n");
+					   exit(EXIT_FAILURE);
+					}
+
+			        if (lval > INT_MAX)
+			        {
+			        	print("Position %ld too large!\n", lval);
+						exit(EXIT_FAILURE);
+			        }
+			        else if (lval < INT_MIN)
+			        {
+			            print("Position %ld too small!\n", lval);
+						exit(EXIT_FAILURE);
+			        }
+
+			        startloc = (int) lval;
+
+				}
 				break;
 			case 'c':
 				if(clockupd != 0)
@@ -197,6 +250,10 @@ int main(int argc, char **argv)
 		} else {
 			print("           => '%s'\n", outfile);
 			output_file = fopen(outfile, "a");
+			if(output_file == NULL) {
+				perror("Could not open filename");
+				exit(EXIT_FAILURE);
+			}
 		}
 	} else {
 		switch(mode) {
@@ -211,6 +268,10 @@ int main(int argc, char **argv)
 
 		print("           => '%s'\n", outfile);
 		output_file = fopen(outfile, "a");
+		if(output_file == NULL) {
+			perror("Could not open filename");
+			exit(EXIT_FAILURE);
+		}
 	}
 
 	switch(mode) {
@@ -225,19 +286,54 @@ int main(int argc, char **argv)
 			break;
 	}
 
+	int exit_code;
+
+	if(end_location == -1) {
+
 	time(&c);
 	tm = localtime(&c); 
-	print("--%02d:%02d:%02d--  Data downloaded successfully ", tm->tm_hour, tm->tm_min, tm->tm_sec);
+		print("--%02d:%02d:%02d--  Data download failed\n", tm->tm_hour, tm->tm_min, tm->tm_sec);
+
+		exit_code = EXIT_FAILURE;
+
+	} else {
+
+		time(&c);
+		tm = localtime(&c);
+		print("--%02d:%02d:%02d--  Data download successful ", tm->tm_hour, tm->tm_min, tm->tm_sec);
 
 	if(strlen(outfile) == 1 && *outfile == '-') 
 		print("=> (standard output)\n");
 	else 
 		print("=> '%s'\n", outfile);
 
-	free(outfile);
+
+		if(locfile != NULL) { // locfile is set when we have read the position from a file
+
+			if (getenv("VERBOSE_OUTPUT")!=NULL)
+				print("Writing back the end location to '%s'.\n",locfile);
+
+			location_file = fopen(locfile,"w");
+
+			// and so we write it back to the file from where we got it
+			fprintf(location_file,"%d",end_location);
+
+			fclose(location_file);
+			free(locfile);
+		}
+
+		exit_code = EXIT_SUCCESS;
+
+	}
 
 	if(output_file != stdout)
 		fclose(output_file);
 
-	exit(end_location);
+	if(outfile != NULL) {
+		free(outfile);
+	}
+
+	if (getenv("VERBOSE_OUTPUT")!=NULL)
+		print("End location: %d\n",end_location);
+	exit(exit_code);
 }
