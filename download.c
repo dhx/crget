@@ -201,7 +201,7 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 
 	if(failures >= MAX_FAILED_ATTEMPTS) {
 		fatal("Error #203: Too many failed attempts to communicate with datalogger... giving up!\n");
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 
 	/* Normal operation */
