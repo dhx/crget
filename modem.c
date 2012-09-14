@@ -377,7 +377,7 @@ int modem_hangup(modem_t m)
 		usleep(1000000L);
 
 		if(n>HANGUP_RETRIES-5 && n%2) {
-			if(write(m->fd, "\r\nATH\r\n", 5) < 0) {
+			if(write(m->fd, "\r\nATH\r\n", 7) < 0) {
 				perror("write");
 				return -1;
 			}
@@ -441,7 +441,7 @@ int modem_hangup(modem_t m)
 			return -1;
 		}
 
-		if(write(m->fd, "ATH\r\n", 5) < 0) {
+		if(write(m->fd, "\r\nATH\r\n", 7) < 0) {
 			perror("write");
 			return -1;
 		}
