@@ -40,6 +40,7 @@
 #include <string.h>
 #include <errno.h>
 #include <limits.h>
+#include <signal.h>
 
 
 #include "download.h"
@@ -98,7 +99,7 @@ void usage_full()
 
 int main(int argc, char **argv)
 {
-	int r, end_location;
+	int r, end_location = -1;
 
 	/* Settings */
 	int mode = -1;	/* 0: Local serial  1: Modem  2: TCP/IP */
@@ -117,6 +118,9 @@ int main(int argc, char **argv)
 
 	FILE *output_file;
 	FILE *location_file;
+
+	/* A dropped TCP connection must show up as a write error, not kill us */
+	signal(SIGPIPE, SIG_IGN);
 
 	while((r = getopt(argc, argv, "d:p:l:c:o:s:Ciqh")) != -1) {
 		switch(r) {
@@ -147,7 +151,8 @@ int main(int argc, char **argv)
 				locfile = strdup(optarg);
 				location_file = fopen(locfile, "r");
 				if(location_file != NULL) {
-					fscanf(location_file,"%d",&startloc);
+					if(fscanf(location_file,"%d",&startloc) != 1)
+						startloc = -1;
 
 					if (getenv("VERBOSE_OUTPUT")!=NULL)
 						print("Reading position out of '%s': %d\n",locfile,startloc);
@@ -211,6 +216,9 @@ int main(int argc, char **argv)
 				break;
 			case 'h':
 				usage_full();
+				break;
+			default:
+				usage();
 		}
 	}
 	argc -= optind;
@@ -258,12 +266,16 @@ int main(int argc, char **argv)
 	} else {
 		switch(mode) {
 			case 0:
-				asprintf(&outfile, "logger_data-%04d%02d%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+				r = asprintf(&outfile, "logger_data-%04d%02d%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
 				break;
-			case 1:
-			case 2:
-				asprintf(&outfile, "logger_data-%s-%04d%02d%02d", logger, tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+			default:
+				r = asprintf(&outfile, "logger_data-%s-%04d%02d%02d", logger, tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
 				break;
+		}
+
+		if(r < 0) {
+			perror("asprintf");
+			exit(EXIT_FAILURE);
 		}
 
 		print("           => '%s'\n", outfile);
@@ -302,10 +314,10 @@ int main(int argc, char **argv)
 		tm = localtime(&c);
 		print("--%02d:%02d:%02d--  Data download successful ", tm->tm_hour, tm->tm_min, tm->tm_sec);
 
-	if(strlen(outfile) == 1 && *outfile == '-') 
-		print("=> (standard output)\n");
-	else 
-		print("=> '%s'\n", outfile);
+		if(strlen(outfile) == 1 && *outfile == '-') 
+			print("=> (standard output)\n");
+		else 
+			print("=> '%s'\n", outfile);
 
 
 		if(locfile != NULL) { // locfile is set when we have read the position from a file
@@ -316,9 +328,12 @@ int main(int argc, char **argv)
 			location_file = fopen(locfile,"w");
 
 			// and so we write it back to the file from where we got it
-			fprintf(location_file,"%d",end_location);
+			if(location_file != NULL) {
+				fprintf(location_file,"%d",end_location);
+				fclose(location_file);
+			} else
+				perror(locfile);
 
-			fclose(location_file);
 			free(locfile);
 		}
 

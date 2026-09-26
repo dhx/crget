@@ -88,6 +88,7 @@ static logger_t cn_wrapper(fd_t (*connect)(void *cd), void *cd, char *security_c
 	while((l = logger_create(fd)) == NULL) {
 		if(i++ > MAX_CONNECT_ATTEMPTS) {
 			fatal("Error #202: Too many failed attempts to communicate with datalogger... giving up!\n");
+			fd_destroy(fd);
 			return NULL;
 			//exit(EXIT_FAILURE);
 		}
@@ -103,7 +104,6 @@ static logger_t cn_wrapper(fd_t (*connect)(void *cd), void *cd, char *security_c
 static int download_data(uint8_t **bptr, logger_t l, int start, int end, int filled, int *downloaded)
 {
 	int total, loc_to_read, loc_to_start, total_read, wrapped, show_bar=0;
-	uint8_t *buffer;
 
 	show_bar = (int)(getenv("HIDE_DOWNLOADBAR")==NULL);
 
@@ -118,7 +118,7 @@ static int download_data(uint8_t **bptr, logger_t l, int start, int end, int fil
 		wrapped = 0;
 
 	if(*bptr == NULL) 
-		buffer = *bptr = (uint8_t *)xmalloc(total * 2);
+		*bptr = (uint8_t *)xmalloc(total * 2);
 
 	while(*downloaded < total) {
 		if(show_bar) draw_bar(*downloaded, total);
@@ -166,7 +166,7 @@ static int download_data(uint8_t **bptr, logger_t l, int start, int end, int fil
 static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *security_code, int clockupd, int user_start_location)
 {
 	int start_location, end_location, downloaded_locations = 0;
-	int reference_location, filled_locations, memory_pointer, locations_per_array;
+	int reference_location, filled_locations, memory_pointer, locations_per_array = 0;
 	int skew = 0;
 	int failures = 0;
 	uint8_t *buffer = NULL;
@@ -188,6 +188,7 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 			if(logger_update_clock(l, &skew) < 0) {
 				failures++;
 				logger_destroy(l);
+				l = NULL;
 				continue;
 			}
 
@@ -197,6 +198,7 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 		if(logger_get_position(l, &reference_location, &filled_locations, &memory_pointer, &locations_per_array) < 0) {
 			failures++;
 			logger_destroy(l);
+			l = NULL;
 			continue;
 		}
 
@@ -240,11 +242,15 @@ static int download(FILE *out, fd_t (*connect)(void *cd), void *cd, char *securi
 			if(downloaded_locations > 100) { // even though we failed to download all data, we still got some...
 
 				// try to remove incomplete arrays
+				if(locations_per_array > 0)
+					downloaded_locations = (downloaded_locations / locations_per_array) * locations_per_array;
 
-				downloaded_locations = (downloaded_locations / locations_per_array) * locations_per_array;
-				end_location = (start_location + downloaded_locations) % filled_locations;
+				// the next location to read, wrapping the same way download_data() does
+				end_location = start_location + downloaded_locations;
+				if(end_location >= filled_locations)
+					end_location = end_location - filled_locations + 1;
 
-				print("Saving incomplete download (%d Locations)",downloaded_locations);
+				print("Saving incomplete download (%d Locations)\n",downloaded_locations);
 
 				break;
 
@@ -301,6 +307,7 @@ int download_modem(FILE *out, char *number, char *device, char *security_code, i
 	}
 
 	modem_hangup(m);
+	modem_close(m);
 	modem_destroy(m);
 
 	return retval;

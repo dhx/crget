@@ -65,7 +65,13 @@ void fatal(const char *format, ...)
 
 void draw_bar(int cur, int max)
 {
-	int p = (cur * 100) / max, b = p / 5, i;
+	int p, b, i;
+
+	if(max <= 0)
+		return;
+
+	p = (cur * 100) / max;
+	b = p / 5;
 
 	if(cur != max) 
 		fprintf(stderr, "\r %d%%\t[", p);
@@ -73,7 +79,7 @@ void draw_bar(int cur, int max)
 		fprintf(stderr, "\r100%%\t[");
 
 	for(i = 0; i < 20; i++) {
-		if(b >= i)
+		if(i < b)
 			fputc('*', stderr);
 		else
 			fputc(' ', stderr);
