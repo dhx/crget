@@ -60,6 +60,9 @@ ssize_t buffer_prepend(buffer_t b, void *buffer, size_t nbytes)
 {
 	uint8_t *t;
 
+	if(nbytes < 1)
+		return 0;
+
 	t = xmalloc(nbytes + b->dsize);
 	memcpy(t, buffer, nbytes);
 	memcpy(t + nbytes, b->dptr, b->dsize);
@@ -88,20 +91,25 @@ ssize_t buffer_add(buffer_t b, void *buffer, size_t nbytes)
 		return nbytes;
 	}
 
-	if(b->bsize != b->dsize && (b->bsize - b->dsize - (b->dptr - b->bptr)) < nbytes) 
-		b->bptr = (uint8_t *)xrealloc(b->bptr, b->dsize + nbytes);
-
+	/* Move the pending data to the front before (possibly) reallocating, as
+	   realloc() may move the block and invalidate dptr */
 	memmove(b->bptr, b->dptr, b->dsize);
+	b->dptr = b->bptr;
+
+	if(b->bsize - b->dsize < nbytes) {
+		b->bptr = b->dptr = (uint8_t *)xrealloc(b->bptr, b->dsize + nbytes);
+		b->bsize = b->dsize + nbytes;
+	}
+
 	memcpy(b->bptr + b->dsize, buffer, nbytes);
 	b->dsize += nbytes;
-	b->dptr = b->bptr;
 
 	return nbytes;
 }
 
 ssize_t buffer_get(buffer_t b, void *buffer, size_t nbytes)
 {
-	int ret;
+	ssize_t ret;
 
 	if(b->dsize == 0)
 		return 0;

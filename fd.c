@@ -69,11 +69,13 @@ fd_t fd_init_serial(char *device)
 	}
 
 	if(tcgetattr(f->fd, &f->tio) < 0) {
+		close(f->fd);
 		xfree(f);
 		return NULL;
 	}
 
 	if(tcgetattr(f->fd, &newtio) < 0) {
+		close(f->fd);
 		xfree(f);
 		return NULL;
 	}
@@ -84,6 +86,7 @@ fd_t fd_init_serial(char *device)
 	newtio.c_lflag &= ~(ICANON|ECHO|ECHOE|ISIG);
 
 	if(tcsetattr(f->fd, TCSANOW, &newtio) < 0) {
+		close(f->fd);
 		xfree(f);
 		return NULL;
 	}
@@ -170,7 +173,7 @@ ssize_t fd_read_raw(fd_t f, void *buffer, size_t nbytes, unsigned int seconds)
 	struct timeval tv;
 
 	if((c = buffer_size(f->b)) > 0) {
-		if(c >= nbytes)
+		if((size_t)c >= nbytes)
 			return buffer_get(f->b, buffer, nbytes);
 
 		buffer_get(f->b, bptr, c);
@@ -191,7 +194,7 @@ ssize_t fd_read_raw(fd_t f, void *buffer, size_t nbytes, unsigned int seconds)
 		return -1;
 	}
 
-	if((ret = read(f->fd, bptr, nbytes)) < 0) {
+	if((ret = read(f->fd, bptr, nbytes)) <= 0) {
 		if(c > 0)
 			return c;
 
@@ -203,13 +206,14 @@ ssize_t fd_read_raw(fd_t f, void *buffer, size_t nbytes, unsigned int seconds)
 
 int fd_read(fd_t f, void *buffer, size_t nbytes, unsigned int seconds)
 {
-	int c;
+	ssize_t c;
+	uint8_t *bptr = (uint8_t *)buffer;
 
 	while(nbytes > 0) {
-		if((c = fd_read_raw(f, buffer, nbytes, seconds)) < 0)
+		if((c = fd_read_raw(f, bptr, nbytes, seconds)) < 0)
 			return -1;
 
-		buffer += c;
+		bptr += c;
 		nbytes -= c;
 	}
 
@@ -228,7 +232,7 @@ int fd_flush(fd_t f)
 
 ssize_t fd_read_line(fd_t f, char *buffer, size_t nbytes, unsigned int seconds)
 {
-	int c, n;
+	ssize_t c, n;
 	char *bptr, *eptr;
 
 	bptr = buffer;
@@ -242,9 +246,9 @@ ssize_t fd_read_line(fd_t f, char *buffer, size_t nbytes, unsigned int seconds)
 
 		if((eptr = strpbrk(bptr, "\r\n")) != NULL) {
 			if(eptr[1] == '\n')
-				buffer_add(f->b, eptr + 2, c - (eptr - bptr + 2));
+				buffer_prepend(f->b, eptr + 2, c - (eptr - bptr + 2));
 			else
-				buffer_add(f->b, eptr + 1, c - (eptr - bptr + 1));
+				buffer_prepend(f->b, eptr + 1, c - (eptr - bptr + 1));
 
 			*eptr = '\0';
 
@@ -264,7 +268,7 @@ ssize_t fd_read_line(fd_t f, char *buffer, size_t nbytes, unsigned int seconds)
 
 ssize_t fd_buffer_count(fd_t f)
 {
-	ssize_t ret;
+	int ret;
 
 	if(ioctl(f->fd, FIONREAD, &ret) < 0)
 		return -1;

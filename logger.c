@@ -90,6 +90,10 @@
  * a checksum can fail before we give up. */
 #define MAX_CHECKSUM_FAILURES           5
 
+/* MAX_COMMAND_RETRIES defines how many times a command is reissued when the
+ * datalogger echoes back something other than the command we sent. */
+#define MAX_COMMAND_RETRIES             5
+
 /* Initialize the datalogger and return a new logger object */
 logger_t logger_create(fd_t s)
 {
@@ -104,18 +108,20 @@ logger_t logger_create(fd_t s)
 	do {
 		if(fd_write(l->p, "\r\n", 2) < 0) {
 			print("Serial error: Couldn't send to device!\n");
+			xfree(l);
 			return NULL;
 		}
 
 		usleep(125000L);
-	} while(fd_buffer_count(l->p) == 0 && r++ < INIT_RETRIES);
 
-	if(r == INIT_RETRIES) {
-		print("Datalogger error: No response from datalogger!\n");
-		return NULL;
-	}
+		if(fd_buffer_count(l->p) > 0)
+			return l;
+	} while(++r < INIT_RETRIES);
 
-	return l;
+	print("Datalogger error: No response from datalogger!\n");
+	xfree(l);
+
+	return NULL;
 }
 
 void logger_destroy(logger_t l)
@@ -174,7 +180,7 @@ static int logger_get_prompt(logger_t l)
    remove the get prompt function, and have this function get a prompt before
    it returns, then set a value in logger saying the datalogger is ready for the 
    next command. */
-static ssize_t logger_command(logger_t l, char *instr, char *outstr, int len)
+static ssize_t logger_command_retry(logger_t l, char *instr, char *outstr, int len, int retries)
 {
 	int i, ec = 0;
 	char *outptr;
@@ -247,16 +253,24 @@ static ssize_t logger_command(logger_t l, char *instr, char *outstr, int len)
 
 		/* At this point we've encountered the bug. */
 
+		if(retries <= 0)
+			break;
+
 		if(logger_get_prompt(l) < 0) {
 			return -1;
 		}
 
-		return logger_command(l, instr, outstr, len);
+		return logger_command_retry(l, instr, outstr, len, retries - 1);
 	}
 
 	print("Datalogger error: Invalid response received while sending command\n");
 
 	return -1;
+}
+
+static ssize_t logger_command(logger_t l, char *instr, char *outstr, int len)
+{
+	return logger_command_retry(l, instr, outstr, len, MAX_COMMAND_RETRIES);
 }
 
 /*
@@ -281,7 +295,7 @@ int logger_set_security_level(logger_t l, char *password)
 	if(logger_get_prompt(l) < 0)
 		return -1;
 
-	cmd = (char *)xmalloc(strlen(password) + 4);
+	cmd = (char *)xmalloc(strlen(password) + 5);
 
 	strcpy(cmd, password);
 	strcat(cmd, "L\r\n\n");
@@ -300,7 +314,11 @@ int logger_set_security_level(logger_t l, char *password)
 			return -1;
 		}
 
-		fd_read_raw(l->p, &c, 1, RESPONSE_TIMEOUT);
+		if(fd_read_raw(l->p, &c, 1, RESPONSE_TIMEOUT) < 0) {
+			print("Lost communication with datalogger (Serial read failed)\n");
+			return -1;
+		}
+
 		if(!cmark && c != '*') 
 			checksum = (checksum + c) % 8192;
 
@@ -343,7 +361,7 @@ int logger_set_security_level(logger_t l, char *password)
 	}
 
 	if(!i) {
-		print("Warning: Failed to set security level (Invalid passcode or datalogger unlocked)\n", password);
+		print("Warning: Failed to set security level (Invalid passcode or datalogger unlocked)\n");
 		return 1;
 	} else {
 		if(smark == 1)
@@ -405,7 +423,7 @@ they are counted from one.
  */
 int logger_update_clock(logger_t l, int *skew)
 {
-	time_t t, tb, ta, tl;
+	time_t t, tb, ta;
 	int i = 0;
 	int logger_day = 0, logger_hour = 0, logger_minute = 0, logger_second = 0;
 	int real_day, real_hour, real_minute, real_second;
@@ -463,8 +481,6 @@ int logger_update_clock(logger_t l, int *skew)
 
 	real_skew = real_ysec - logger_ysec;
 
-	tl = t - real_skew * 60;
-
 	print("local: %02d:%02d:%02d logger: %02d:%02d:%02d (corrected by lag: %d sec.)\n",real_hour,real_minute,real_second,logger_hour,logger_minute,logger_second,lag);
 
 	char *env_clock = NULL;
@@ -487,7 +503,7 @@ int logger_update_clock(logger_t l, int *skew)
 		snprintf(outbuf, 128, "%03d:%02d:%02d:%02dC", real_day + 1, real_hour, real_minute, real_second);
 
 		if(logger_command(l, outbuf, inbuf, 128) < 0)
-			return 1;
+			return -1;
 		} else {
 			print("Not updating clock: The lag of the connection is too high (%d > 1 sec).\n", lag);
 		}
@@ -521,6 +537,9 @@ int logger_get_position(logger_t l, int *reference_location, int *filled_locatio
 
 	if(memory_pointer != NULL)
 		*memory_pointer = -1;
+
+	if(locations_per_array != NULL)
+		*locations_per_array = 0;
 
 	while((p = strsep(&s, " ")) != NULL) {
 		switch(p[0]) {
@@ -574,7 +593,7 @@ int logger_get_position(logger_t l, int *reference_location, int *filled_locatio
 	while((p = strsep(&ls, " ")) != NULL) {
 		switch(p[0]) {
 			case 'L':
-				if(locations_per_array == NULL)
+				if(locations_per_array == NULL || memory_pointer == NULL || filled_locations == NULL)
 					continue;
 
 				if((t = strchr(p, '+')) == NULL)
@@ -618,7 +637,7 @@ int logger_set_position(logger_t l, int position)
 			if((bptr = strchr(p, '.')) != NULL) 
 				*bptr = '\0';
 
-			if((unsigned)atoi(p) != position) {
+			if(atoi(p) != position) {
 				print("Error while setting position: Returned position is different from specified!\n");
 				return -1;
 			}
@@ -648,10 +667,9 @@ int logger_record_align(logger_t l, int *location)
 		return -1;
 
 	lp++;
-	if((tp = strchr(lp, ' ')) == NULL)
-		return -1;
+	if((tp = strchr(lp, ' ')) != NULL)
+		*tp = '\0';
 
-	*tp = '\0';
 	*location = atoi(lp);
 
 	return 0;
@@ -681,14 +699,14 @@ requested amount of data, otherwise a buffer overflow will occur.
  */
 static ssize_t logger_read_raw_data(logger_t l, uint8_t *buffer, unsigned int locations)
 {
-	int i = 0;
+	unsigned int i = 0;
 	uint8_t buf[16], c, s[2];
 	uint16_t logger_checksum, our_checksum;
 
 	if(logger_get_prompt(l) < 0)
 		return -1;
 
-	snprintf((char *)buf, 16, "%dF\r", locations);
+	snprintf((char *)buf, 16, "%uF\r", locations);
 
 	if(fd_write(l->p, buf, strlen((char *)buf)) < 0)
 		return -1;
@@ -742,11 +760,11 @@ static int logger_read_data_exception(logger_t l, uint8_t *buffer, unsigned int 
 	while(locations_to_read > 0) {
 		read_locations = locations_to_read < EXCEPTION_DATA_CHUNK_SIZE ? locations_to_read : EXCEPTION_DATA_CHUNK_SIZE;
 
-		if(logger_set_position(l, start_location) < 0)
-			return -1;
-
 		i = 0;
 		do {
+			if(logger_set_position(l, start_location) < 0)
+				return -1;
+
 			if((retval = logger_read_raw_data(l, buffer, read_locations)) == -1)
 				return -1;
 		} while(retval == -2 && i++ < MAX_CHECKSUM_FAILURES);

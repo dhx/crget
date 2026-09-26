@@ -169,7 +169,7 @@ ssize_t modem_read(modem_t m, void *buf, size_t nbytes, int timeout)
 	struct timeval tv;
 
 	tv.tv_sec = timeout/1000;
-	tv.tv_usec = timeout%1000;
+	tv.tv_usec = (timeout%1000) * 1000;
 
 	FD_ZERO(&f);
 	FD_SET(m->fd, &f);
@@ -202,6 +202,7 @@ int modem_reset(modem_t m)
 		}
 
 		memset(buf, '\0', 16);
+		x = 0;
 
 		while(x < 15) {
 			if(modem_read(m, &c, 1, 5000) < 0)
@@ -323,17 +324,17 @@ int modem_dial(modem_t m, char *number)
 
 	if(strncmp(ret, "CONNECT", 7) != 0) {
 		if(strstr(ret, "BUSY") != NULL) {
-			puts("The line is busy");
+			print("The line is busy\n");
 			return 1;
 		}
 
 		if(strstr(ret, "DIALTONE") != NULL) {
-			puts("No dialtone");
+			print("No dialtone\n");
 			return 2;
 		}
 
 		if(strstr(ret, "CARRIER") != NULL) {
-			puts("No carrier");
+			print("No carrier\n");
 			return 3;
 		}
 
@@ -347,7 +348,7 @@ int modem_dial(modem_t m, char *number)
 int modem_hangup(modem_t m)
 {
 	int i = 0, n = 0, x = 0, debug_hangup=0;
-	char buf[210], c;
+	char buf[210], c = '\0';
 
 
 	if(getenv("DEBUG_HANGUP")!=NULL) {
@@ -398,6 +399,7 @@ int modem_hangup(modem_t m)
 
 		// reset the safety counter
 		i = 0;
+		x = 0;
 
 		do {
 
@@ -428,11 +430,10 @@ int modem_hangup(modem_t m)
 		} while ((strcmp(buf, "OK")!=0) && (i < 2000));
 
 
-	} while ( i >= 2000 ); // loop until the escape into the modem command line was a success.
+	} while (strcmp(buf, "OK") != 0); // loop until the escape into the modem command line was a success.
 
 	// reset the safety counter for the next loop
 	i = 0;
-	x = 0;
 
 	do {
 
@@ -451,6 +452,7 @@ int modem_hangup(modem_t m)
 		usleep(1000000L);
 
 		memset(buf, '\0', 210);
+		x = 0;
 
 		while(x < 200) {
 			if(modem_read(m, &c, 1, 10) < 0)

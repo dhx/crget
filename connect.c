@@ -78,6 +78,8 @@ fd_t connect_modem(void *cd)
 	while(modem_reset(m) < 0) {
 		if(i++ > MODEM_INIT_ATTEMPTS) {
 			fatal("Error #102: Couldn't reset modem\n");
+			modem_close(m);
+			modem_destroy(m);
 			return NULL;
 			//exit(EXIT_FAILURE);
 		}
@@ -103,6 +105,8 @@ fd_t connect_modem(void *cd)
 
 		if(i > MODEM_DIAL_ATTEMPTS) {
 			fatal("Error #104: Too many dialing attempts, giving up!\n");
+			modem_close(m);
+			modem_destroy(m);
 			return NULL;
 			//exit(EXIT_FAILURE);
 		}
@@ -114,6 +118,8 @@ fd_t connect_modem(void *cd)
 	print("connected.\n");
 
 	if((fd = fd_init_modem(m)) == NULL) {
+		modem_close(m);
+		modem_destroy(m);
 		return NULL;
 	}
 
@@ -150,6 +156,7 @@ fd_t connect_tcpip(void *cd)
 
 	if(connect(fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
 		print("Warning: Couldn't connect to %s:%d\n", tcd->hostname, tcd->port);
+		close(fd);
 		return NULL;
 	}
 
